@@ -1,0 +1,52 @@
+# Backend Docker 전용 requirements
+# API 서버만 포함 (AI 모델 관련 의존성 제거)
+
+# === FastAPI 및 웹 프레임워크 ===
+fastapi==0.122.0
+uvicorn==0.38.0
+starlette==0.50.0
+python-multipart==0.0.20
+pydantic==2.12.4
+pydantic_core==2.41.5
+
+# === 데이터베이스 ===
+mysqlclient==2.2.7
+PyMySQL==1.1.2
+SQLAlchemy==2.0.46
+motor==3.6.0
+pymongo==4.9.2
+beanie==1.26.0
+
+# === 인증 및 보안 ===
+bcrypt==3.2.2
+PyJWT==2.10.1
+passlib==1.7.4
+cryptography==46.0.4
+
+# === HTTP 클라이언트 ===
+httpx==0.28.1
+requests==2.32.5
+httpcore==1.0.9
+httptools==0.7.1
+
+# === AWS S3 ===
+boto3==1.42.39
+botocore==1.42.39
+s3transfer==0.16.0
+
+# === 유틸리티 ===
+python-dotenv==1.2.1
+python-dateutil==2.9.0.post0
+orjson==3.11.5
+pytz==2025.2
+
+# === 기본 라이브러리 ===
+certifi==2025.11.12
+charset-normalizer==3.4.4
+idna==3.11
+urllib3==2.5.0
+click==8.3.1
+typing_extensions==4.15.0
+
+# === 이미지 처리 (S3 업로드용) ===
+pillow==12.0.0
