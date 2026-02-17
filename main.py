@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 import httpx
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -433,6 +434,37 @@ async def extract_diary_ocr_text(file: UploadFile = File(...)):
         ct = (content_type or "image/jpeg").split(";")[0].strip() or "image/jpeg"
         out["image_data_url"] = f"data:{ct};base64,{b64}"
     return out
+
+
+@app.post("/diary-ocr/extract-stream")
+async def extract_diary_ocr_text_stream(file: UploadFile = File(...)):
+    """그림일기 OCR 진행률 스트리밍. OCR 서버의 SSE 스트림을 그대로 전달."""
+    if not file or not file.filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"message": "파일을 업로드해 주세요."})
+    contents = await file.read()
+    content_type = file.content_type or "image/jpeg"
+
+    async def stream():
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            try:
+                async with client.stream(
+                    "POST",
+                    f"{OCR_BASE_URL}/diary-ocr-stream",
+                    files={"file": (file.filename, contents, content_type)},
+                ) as response:
+                    response.raise_for_status()
+                    async for chunk in response.aiter_bytes():
+                        yield chunk
+            except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+                err = str(exc)
+                if hasattr(exc, "response") and exc.response is not None:
+                    try:
+                        err = exc.response.text[:500]
+                    except Exception:
+                        pass
+                yield f"data: {__import__('json').dumps({'error': True, 'detail': err}, ensure_ascii=False)}\n\n".encode("utf-8")
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 @app.get("/diary-ocr")
