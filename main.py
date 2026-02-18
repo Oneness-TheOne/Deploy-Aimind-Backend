@@ -70,6 +70,12 @@ KAKAO_REDIRECT_URI = os.getenv(
     "KAKAO_REDIRECT_URI",
     "http://localhost:8000/auth/kakao/callback",
 )
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI = os.getenv(
+    "GOOGLE_REDIRECT_URI",
+    "http://localhost:8000/auth/google/callback",
+)
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
 
 
@@ -741,6 +747,140 @@ async def kakao_callback(code: str, db: Session = Depends(get_db)):
         "email": email,
     }
     redirect_url = f"{FRONTEND_BASE_URL.rstrip('/')}/login/kakao-callback?{urllib.parse.urlencode(query)}"
+    return RedirectResponse(redirect_url)
+
+
+@app.get("/auth/google/login")
+def google_login():
+    """구글 로그인 시작: 구글 OAuth 인가 페이지로 리다이렉트."""
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": "GOOGLE_CLIENT_ID가 설정되지 않았습니다."},
+        )
+
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "response_type": "code",
+        "scope": "openid email profile",  # 이메일, 프로필 정보 요청
+        "access_type": "offline",  # refresh token 받기 위해
+        "prompt": "consent",  # 동의 화면 표시
+    }
+    url = "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(params)
+    return RedirectResponse(url)
+
+
+@app.get("/auth/google/callback")
+async def google_callback(code: str, db: Session = Depends(get_db)):
+    """구글 OAuth 콜백: 토큰/유저 정보 조회 후 우리 서비스 토큰 발급."""
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"message": "인가 코드가 없습니다."},
+        )
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": "GOOGLE_CLIENT_ID가 설정되지 않았습니다."},
+        )
+
+    # 1) 인가 코드로 구글 액세스 토큰 발급
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            data = {
+                "code": code,
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "redirect_uri": GOOGLE_REDIRECT_URI,
+                "grant_type": "authorization_code",
+            }
+
+            token_res = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data=data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+        token_res.raise_for_status()
+        token_data = token_res.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"message": "구글 토큰 발급에 실패했습니다.", "error": str(exc)},
+        )
+
+    access_token = token_data.get("access_token")
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"message": "구글 액세스 토큰이 없습니다.", "body": token_data},
+        )
+
+    # 2) 액세스 토큰으로 구글 사용자 정보 조회
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            user_res = await client.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+        user_res.raise_for_status()
+        google_user = user_res.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"message": "구글 사용자 정보 조회에 실패했습니다.", "error": str(exc)},
+        )
+
+    google_id = google_user.get("sub")  # 구글은 "sub" 필드에 사용자 ID
+    email = google_user.get("email")
+    name = google_user.get("name") or google_user.get("given_name") or "구글 사용자"
+    profile_image_url = google_user.get("picture") or "base"
+
+    # 이메일이 없는 경우 처리 (구글은 보통 이메일을 제공하지만 안전장치)
+    if not email:
+        if not google_id:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={"message": "구글 응답에 id/email이 없습니다.", "body": google_user},
+            )
+        email = f"google_{google_id}@example.com"
+
+    # 3) 우리 서비스 유저 조회/생성
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        # 소셜 로그인 전용 유저 생성 (랜덤 패스워드/기본 region)
+        # region은 ENUM 타입이므로 허용된 값 중 하나를 사용 (기본값: 서울특별시)
+        random_password = base64.b64encode(os.urandom(18)).decode("ascii")
+        hashed = hash_password(random_password)
+        user = User(
+            name=name,
+            email=email,
+            password=hashed,
+            profile_image_url=profile_image_url,
+            region="서울특별시",  # ENUM에 포함된 기본 지역값
+            agree_terms=1,
+            agree_privacy=1,
+            agree_marketing=0,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    else:
+        # 기존 유저: 구글 프로필 사진이 있고, 아직 기본값이면 업데이트
+        if profile_image_url != "base" and (not user.profile_image_url or user.profile_image_url == "base"):
+            user.profile_image_url = profile_image_url
+            db.commit()
+            db.refresh(user)
+
+    # 4) 기존 로직과 동일한 JWT 발급
+    token = create_jwt_token(str(user.id))
+
+    # 5) 프론트엔드 콜백 페이지로 리다이렉트 (토큰/이메일 전달)
+    query = {
+        "token": token,
+        "email": email,
+    }
+    redirect_url = f"{FRONTEND_BASE_URL.rstrip('/')}/login/google-callback?{urllib.parse.urlencode(query)}"
     return RedirectResponse(redirect_url)
 
 
