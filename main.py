@@ -689,9 +689,10 @@ async def kakao_callback(code: str, db: Session = Depends(get_db)):
     kakao_account = kakao_user.get("kakao_account") or {}
     profile = kakao_account.get("profile") or {}
     
-    # 카카오에서 제공하는 실제 이메일과 닉네임 가져오기
+    # 카카오에서 제공하는 이메일, 닉네임, 프로필 이미지 가져오기
     email = kakao_account.get("email")
     name = profile.get("nickname") or kakao_account.get("name") or "카카오 사용자"
+    profile_image_url = profile.get("profile_image_url") or profile.get("thumbnail_image_url") or "base"
     
     # 이메일이 없거나 동의하지 않은 경우 처리
     if not email:
@@ -715,6 +716,7 @@ async def kakao_callback(code: str, db: Session = Depends(get_db)):
             name=name,
             email=email,
             password=hashed,
+            profile_image_url=profile_image_url,
             region="서울특별시",  # ENUM에 포함된 기본 지역값
             agree_terms=1,
             agree_privacy=1,
@@ -723,6 +725,12 @@ async def kakao_callback(code: str, db: Session = Depends(get_db)):
         db.add(user)
         db.commit()
         db.refresh(user)
+    else:
+        # 기존 유저: 카카오 프로필 사진이 있고, 아직 기본값이면 업데이트
+        if profile_image_url != "base" and (not user.profile_image_url or user.profile_image_url == "base"):
+            user.profile_image_url = profile_image_url
+            db.commit()
+            db.refresh(user)
 
     # 4) 기존 로직과 동일한 JWT 발급
     token = create_jwt_token(str(user.id))
