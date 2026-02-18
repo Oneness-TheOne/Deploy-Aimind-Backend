@@ -13,7 +13,6 @@ class SignupRequest(BaseModel):
     email: EmailStr
     password: str
     name: str
-    region: constr(min_length=2, max_length=20)
     agree_terms: bool = False
     agree_privacy: bool = False
     agree_marketing: bool = False

@@ -578,7 +578,6 @@ def signup(payload: SignupRequest, db: Session = Depends(get_db)):
         name=payload.name,
         email=payload.email,
         profile_image_url="base",
-        region=payload.region,
         agree_terms=1 if payload.agree_terms else 0,
         agree_privacy=1 if payload.agree_privacy else 0,
         agree_marketing=1 if payload.agree_marketing else 0,
@@ -625,6 +624,7 @@ def kakao_login():
         "redirect_uri": KAKAO_REDIRECT_URI,
         "response_type": "code",
         "scope": "account_email profile_nickname",  # 이메일과 닉네임 동의 요청 (카카오 개발자 콘솔에서 동의 항목 활성화 필요)
+        "prompt": "consent",  # 매번 동의 화면 표시 (이미 동의한 사용자에게도)
     }
     url = "https://kauth.kakao.com/oauth/authorize?" + urllib.parse.urlencode(params)
     return RedirectResponse(url)
@@ -714,8 +714,7 @@ async def kakao_callback(code: str, db: Session = Depends(get_db)):
     # 3) 우리 서비스 유저 조회/생성
     user = db.query(User).filter(User.email == email).first()
     if not user:
-        # 소셜 로그인 전용 유저 생성 (랜덤 패스워드/기본 region)
-        # region은 ENUM 타입이므로 허용된 값 중 하나를 사용 (기본값: 서울특별시)
+        # 소셜 로그인 전용 유저 생성 (랜덤 패스워드)
         random_password = base64.b64encode(os.urandom(18)).decode("ascii")
         hashed = hash_password(random_password)
         user = User(
@@ -723,7 +722,6 @@ async def kakao_callback(code: str, db: Session = Depends(get_db)):
             email=email,
             password=hashed,
             profile_image_url=profile_image_url,
-            region="서울특별시",  # ENUM에 포함된 기본 지역값
             agree_terms=1,
             agree_privacy=1,
             agree_marketing=0,
@@ -848,8 +846,7 @@ async def google_callback(code: str, db: Session = Depends(get_db)):
     # 3) 우리 서비스 유저 조회/생성
     user = db.query(User).filter(User.email == email).first()
     if not user:
-        # 소셜 로그인 전용 유저 생성 (랜덤 패스워드/기본 region)
-        # region은 ENUM 타입이므로 허용된 값 중 하나를 사용 (기본값: 서울특별시)
+        # 소셜 로그인 전용 유저 생성 (랜덤 패스워드)
         random_password = base64.b64encode(os.urandom(18)).decode("ascii")
         hashed = hash_password(random_password)
         user = User(
@@ -857,7 +854,6 @@ async def google_callback(code: str, db: Session = Depends(get_db)):
             email=email,
             password=hashed,
             profile_image_url=profile_image_url,
-            region="서울특별시",  # ENUM에 포함된 기본 지역값
             agree_terms=1,
             agree_privacy=1,
             agree_marketing=0,
@@ -893,8 +889,6 @@ def me(context=Depends(get_current_user_context)):
         "email": user.email,
         "name": user.name,
         "profile_image_url": _resolve_profile_image_url(user.profile_image_url),
-        # "profile_image_url": user.profile_image_url,
-        "region": user.region,
         "created_at": user.created_at,
     }
 

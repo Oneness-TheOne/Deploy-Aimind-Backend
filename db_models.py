@@ -26,7 +26,6 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False, index=True)
     password = Column(String(255), nullable=False)
     profile_image_url = Column(String(1000), nullable=False, default="base")
-    region = Column(String(50), nullable=False)
     agree_terms = Column(Integer, nullable=False, default=0)
     agree_privacy = Column(Integer, nullable=False, default=0)
     agree_marketing = Column(Integer, nullable=False, default=0)

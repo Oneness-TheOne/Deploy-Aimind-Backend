@@ -106,16 +106,15 @@ INSERT INTO users (
   password,
   name,
   profile_image_url,
-  region,
   agree_terms,
   agree_privacy,
   agree_marketing
 )
 VALUES
-  ('mom1@example.com', 'dummy', '걱정맘', 'https://example.com/images/users/mom1.jpg', '서울특별시', 1, 1, 0),
-  ('mom2@example.com', 'dummy', '행복한엄마', 'https://example.com/images/users/mom2.jpg', '경기도', 1, 1, 1),
-  ('mom3@example.com', 'dummy', '초보맘22', 'https://example.com/images/users/mom3.jpg', '부산광역시', 1, 1, 0),
-  ('expert1@example.com', 'dummy', '김미영', 'https://example.com/images/users/expert1.jpg', '대전광역시', 1, 1, 0)
+  ('mom1@example.com', 'dummy', '걱정맘', 'https://example.com/images/users/mom1.jpg', 1, 1, 0),
+  ('mom2@example.com', 'dummy', '행복한엄마', 'https://example.com/images/users/mom2.jpg', 1, 1, 1),
+  ('mom3@example.com', 'dummy', '초보맘22', 'https://example.com/images/users/mom3.jpg', 1, 1, 0),
+  ('expert1@example.com', 'dummy', '김미영', 'https://example.com/images/users/expert1.jpg', 1, 1, 0)
 ON DUPLICATE KEY UPDATE
   name = VALUES(name),
   agree_terms = VALUES(agree_terms),
