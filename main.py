@@ -3,12 +3,13 @@ import base64
 from datetime import datetime
 from pathlib import Path
 import os
+import urllib.parse
 
 from dotenv import load_dotenv
 
 import httpx
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -62,6 +63,14 @@ load_dotenv(current_dir / ".env")
 
 AIMODELS_BASE_URL = os.getenv("AIMODELS_BASE_URL", "http://localhost:8080")
 OCR_BASE_URL = os.getenv("OCR_BASE_URL", "http://127.0.0.1:8090")
+
+KAKAO_CLIENT_ID = os.getenv("KAKAO_CLIENT_ID", "")
+KAKAO_CLIENT_SECRET = os.getenv("KAKAO_CLIENT_SECRET", "")
+KAKAO_REDIRECT_URI = os.getenv(
+    "KAKAO_REDIRECT_URI",
+    "http://localhost:8000/auth/kakao/callback",
+)
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
 
 
 class ChatbotRequest(BaseModel):
@@ -594,6 +603,137 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
     token = create_jwt_token(str(user.id))
     return {"token": token, "email": payload.email}
+
+
+@app.get("/auth/kakao/login")
+def kakao_login():
+    """카카오 로그인 시작: 카카오 OAuth 인가 페이지로 리다이렉트."""
+    if not KAKAO_CLIENT_ID:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": "KAKAO_CLIENT_ID가 설정되지 않았습니다."},
+        )
+
+    params = {
+        "client_id": KAKAO_CLIENT_ID,
+        "redirect_uri": KAKAO_REDIRECT_URI,
+        "response_type": "code",
+        "scope": "account_email profile_nickname",  # 이메일과 닉네임 동의 요청 (카카오 개발자 콘솔에서 동의 항목 활성화 필요)
+    }
+    url = "https://kauth.kakao.com/oauth/authorize?" + urllib.parse.urlencode(params)
+    return RedirectResponse(url)
+
+
+@app.get("/auth/kakao/callback")
+async def kakao_callback(code: str, db: Session = Depends(get_db)):
+    """카카오 OAuth 콜백: 토큰/유저 정보 조회 후 우리 서비스 토큰 발급."""
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"message": "인가 코드가 없습니다."},
+        )
+    if not KAKAO_CLIENT_ID:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"message": "KAKAO_CLIENT_ID가 설정되지 않았습니다."},
+        )
+
+    # 1) 인가 코드로 카카오 액세스 토큰 발급
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            data = {
+                "grant_type": "authorization_code",
+                "client_id": KAKAO_CLIENT_ID,
+                "redirect_uri": KAKAO_REDIRECT_URI,
+                "code": code,
+            }
+            if KAKAO_CLIENT_SECRET:
+                data["client_secret"] = KAKAO_CLIENT_SECRET
+
+            token_res = await client.post(
+                "https://kauth.kakao.com/oauth/token",
+                data=data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+        token_res.raise_for_status()
+        token_data = token_res.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"message": "카카오 토큰 발급에 실패했습니다.", "error": str(exc)},
+        )
+
+    access_token = token_data.get("access_token")
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"message": "카카오 액세스 토큰이 없습니다.", "body": token_data},
+        )
+
+    # 2) 액세스 토큰으로 카카오 사용자 정보 조회
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            user_res = await client.get(
+                "https://kapi.kakao.com/v2/user/me",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+        user_res.raise_for_status()
+        kakao_user = user_res.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={"message": "카카오 사용자 정보 조회에 실패했습니다.", "error": str(exc)},
+        )
+
+    kakao_id = kakao_user.get("id")
+    kakao_account = kakao_user.get("kakao_account") or {}
+    profile = kakao_account.get("profile") or {}
+    
+    # 카카오에서 제공하는 실제 이메일과 닉네임 가져오기
+    email = kakao_account.get("email")
+    name = profile.get("nickname") or kakao_account.get("name") or "카카오 사용자"
+    
+    # 이메일이 없거나 동의하지 않은 경우 처리
+    if not email:
+        if not kakao_id:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={"message": "카카오 응답에 id가 없습니다.", "body": kakao_user},
+            )
+        # 이메일 동의를 하지 않은 경우, 카카오 ID 기반 이메일 생성
+        # (실제 서비스에서는 이메일 동의를 필수로 요청하는 것이 좋습니다)
+        email = f"kakao_{kakao_id}@example.com"
+
+    # 3) 우리 서비스 유저 조회/생성
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        # 소셜 로그인 전용 유저 생성 (랜덤 패스워드/기본 region)
+        # region은 ENUM 타입이므로 허용된 값 중 하나를 사용 (기본값: 서울특별시)
+        random_password = base64.b64encode(os.urandom(18)).decode("ascii")
+        hashed = hash_password(random_password)
+        user = User(
+            name=name,
+            email=email,
+            password=hashed,
+            region="서울특별시",  # ENUM에 포함된 기본 지역값
+            agree_terms=1,
+            agree_privacy=1,
+            agree_marketing=0,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    # 4) 기존 로직과 동일한 JWT 발급
+    token = create_jwt_token(str(user.id))
+
+    # 5) 프론트엔드 콜백 페이지로 리다이렉트 (토큰/이메일 전달)
+    query = {
+        "token": token,
+        "email": email,
+    }
+    redirect_url = f"{FRONTEND_BASE_URL.rstrip('/')}/login/kakao-callback?{urllib.parse.urlencode(query)}"
+    return RedirectResponse(redirect_url)
 
 
 @app.post("/auth/me")
