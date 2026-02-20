@@ -303,16 +303,26 @@ def _normalize_gender_for_score(value: str | None) -> str:
     return ""
 
 
+def _get_image_json_from_element(v: dict) -> dict | None:
+    """element_analysis 값이 { image_json, legacy_json } 형태이면 image_json만 반환, 아니면 v 자체."""
+    if not v or not isinstance(v, dict):
+        return None
+    if "image_json" in v:
+        return v.get("image_json") if isinstance(v.get("image_json"), dict) else None
+    return v
+
+
 async def _call_aimodels_analyze_score(
     element_analysis: dict,
     child_info: dict,
 ) -> dict | None:
     """DB의 element_analysis로 AiModels /analyze/score 호출 → T-Score 반환."""
-    results = {
-        k: {"image_json": v}
-        for k, v in (element_analysis or {}).items()
-        if v and isinstance(v, dict) and (k in {"tree", "house", "man", "woman"})
-    }
+    results = {}
+    for k in ("tree", "house", "man", "woman"):
+        v = (element_analysis or {}).get(k)
+        img = _get_image_json_from_element(v) if isinstance(v, dict) else (v if isinstance(v, dict) else None)
+        if img:
+            results[k] = {"image_json": img}
     if not results:
         return None
     try:
