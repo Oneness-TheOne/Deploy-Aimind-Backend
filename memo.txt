@@ -1,0 +1,65 @@
+Authorization
+- http 인증 정보를 담기 위한 규칙
+- 
+
+    Authorization: Basic QWWEQREERWEARWARAR== 이런식으로 헤더에 인증정보가 담김
+
+Bearer
+- JWT 기반의 인증 규칙
+- 이 토큰을 가지고 있는 사람은 인증된 사용자로 간주한다라는 의미
+- 
+
+    Authorization: Bearer QWWEQREERWEARWARAR== 이렇게 되어있으면 조트 인증
+
+
+브랜치
+같은 프로젝트 안에서 서로 다른 개발 라인을 만들고 각자 개발 후, 다시 합칠 수 있는 기능
+만드는 이유
+1. 많은 테스트를 해도 main이 망가질 염려가 없음
+2. 기능별/DB별 작업 내용을 분리
+3. 여러명이 동시에 다른 기능을 개발할 때 충돌을 줄임
+4. 각자의 개발 완료 후 main에 병합할 수 있음(실패 브랜치는 버리면 됨)
+
+브랜치 목록 보기
+git branch
+
+브랜치 생성 및 이동
+git switch -c mysql-support (git checkout -b mysql-support)
+
+이동
+git switch main
+
+기능별/브랜치명
+git switch -c feature/mysql-support
+
+삭제
+git branch -d mysql-support
+
+Mongoose
+- Node.js에서 MongoDB를 쉽게 다루기 위한 ODM 라이브러리
+- MongoDB는 스키마가 자유로운 NoSQL이기 때문에 데이터의 구조가 들쑥날쑥하기 쉬움
+- 스키마 개념을 추가해서 문서를 정의하도록 도와줌(MongoDB + 타입/유효성검사/모델개념 = Mongoose)
+
+Mongoose 사용 흐름
+1. Schema 정의
+2. Model 생성(컬렉션에 대응)
+3. Model을 사용해서 CRUD 수행
+
+ODM(Object Data Modeling)
+NoSQL 데이터베이스를 객체 기반으로 다룰 수 있게 도와주는 라이브러리 또는 기술
+
+✓ SQL은 ORM(Object Relational Mapping)을 사용
+
+
+merge 하기
+1. 메인으로 이동
+git switch main
+
+2. 로컬 main 최신화(동기화)
+git pull origin main
+
+3. feature/mongoose 내용을 main에 합치기
+git merge feature/mongoose
+
+4. 병합된 main을 원격으로 푸시
+git push origin main
