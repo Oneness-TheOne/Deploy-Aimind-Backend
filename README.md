@@ -170,8 +170,3 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 - CORS는 `main.py`에서 localhost/127.0.0.1 기준으로 설정되어 있습니다. 배포 시 `FRONTEND_BASE_URL` 등에 맞게 허용 오리진을 수정하세요.
 - AiModels·OCR 서비스가 떠 있어야 챗봇, 그림 분석 T-Score, 그림일기 OCR 연동이 동작합니다.
 
----
-
-## 라이선스 및 기여
-
-라이선스는 본 저장소의 `LICENSE` 파일을 참고해 주세요. 버그 제보·기능 제안·Pull Request는 이 저장소의 이슈/PR로 남겨 주시면 됩니다.
